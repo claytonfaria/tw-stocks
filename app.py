@@ -147,7 +147,7 @@ def check_conditions(values, k_thresh):
     return k_below_threshold, vol_above_sma
 
 
-def build_result_dict(symbol, values, vol_sma_len, stoch_k_len, conditions):
+def build_result_dict(symbol, values, vol_sma_len, stoch_k_len, conditions, k_thresh):
     """Build the result dictionary for a single ticker."""
     k_below_threshold, vol_above_sma = conditions
     match_count = sum([k_below_threshold, vol_above_sma])
@@ -166,8 +166,8 @@ def build_result_dict(symbol, values, vol_sma_len, stoch_k_len, conditions):
             if values["stoch_k"] is not None and pd.notna(values["stoch_k"])
             else None
         ),
-        "K<Thresh": k_below_threshold,
-        "Vol>SMA": vol_above_sma,
+        f"K < {k_thresh}": k_below_threshold,
+        f"Vol > {vol_sma_len} SMA": vol_above_sma,
         "Matches": match_count,
     }
 
@@ -181,7 +181,9 @@ def process_data(raw_data, vol_sma_len, stoch_k_len, k_thresh):
         indicators = calculate_indicators(df, vol_sma_len, stoch_k_len)
         values = extract_latest_values(df, indicators)
         conditions = check_conditions(values, k_thresh)
-        result = build_result_dict(symbol, values, vol_sma_len, stoch_k_len, conditions)
+        result = build_result_dict(
+            symbol, values, vol_sma_len, stoch_k_len, conditions, k_thresh
+        )
         processed_results.append(result)
 
     return pd.DataFrame(processed_results)
@@ -252,12 +254,12 @@ if raw_data:
             format="%.2f",
             width="small",
         ),
-        "K<Thresh": st.column_config.CheckboxColumn(
-            "K<Thresh",
+        f"K < {k_threshold}": st.column_config.CheckboxColumn(
+            f"K < {k_threshold}",
             width="small",
         ),
-        "Vol>SMA": st.column_config.CheckboxColumn(
-            "Vol>SMA",
+        f"Vol > {vol_sma_length} SMA": st.column_config.CheckboxColumn(
+            f"Vol > {vol_sma_length} SMA",
             width="small",
         ),
         "Matches": st.column_config.NumberColumn(
