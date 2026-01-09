@@ -191,7 +191,7 @@ def process_data(raw_data, vol_sma_len, stoch_k_len, k_thresh):
 # Fetch raw data (cached, only happens once per hour)
 with st.spinner("Fetching data from Yahoo Finance..."):
     raw_data = fetch_raw_data(raw_tickers)
-    refresh_time = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    refresh_time = pd.Timestamp.now(tz="Asia/Taipei").strftime("%Y-%m-%d %H:%M:%S")
 
 if raw_data:
     # Get the latest date from the first stock for Close column header
