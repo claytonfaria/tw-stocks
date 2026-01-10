@@ -164,9 +164,10 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
 
     df = raw_data[stock_id].copy()
 
-    # Calculate Stochastic K
+    # Calculate Stochastic K and D
     stoch = ta.stoch(df["High"], df["Low"], df["Close"], k=9)
     df["stoch_k"] = stoch["STOCHk_9_3_3"] if stoch is not None else None
+    df["stoch_d"] = stoch["STOCHd_9_3_3"] if stoch is not None else None
 
     # Calculate Volume SMA 60
     df["vol_sma_60"] = ta.sma(df["Volume"], length=60)
@@ -247,6 +248,10 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
             alt.X("yearmonthdate(Date):O").axis(labelAngle=-45, title=None),
             alt.Y("Volume:Q").title("Volume"),
             color=open_close_color,
+            tooltip=[
+                alt.Tooltip("Date:T", title="Date", format="%Y-%m-%d"),
+                alt.Tooltip("Volume:Q", title="Volume", format=",.0f"),
+            ],
         )
     )
 
@@ -256,18 +261,38 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
         .encode(
             alt.X("yearmonthdate(Date):O"),
             alt.Y("vol_sma_60:Q"),
+            tooltip=[
+                alt.Tooltip("Date:T", title="Date", format="%Y-%m-%d"),
+                alt.Tooltip("vol_sma_60:Q", title="Volume SMA 60", format=",.0f"),
+            ],
         )
     )
 
     volume_chart = (volume_bars + volume_sma_line).properties(height=100)
 
-    # Stochastic K chart
-    stoch_chart = (
-        alt.Chart(df)
-        .mark_line(color="#1f77b4", size=2)
+    # Stochastic K and D chart
+    # Prepare stochastic data for proper legend
+    stoch_data = df[["Date", "stoch_k", "stoch_d"]].melt(
+        id_vars=["Date"], var_name="Line", value_name="value"
+    )
+    stoch_data["Line"] = stoch_data["Line"].map({"stoch_k": "%K", "stoch_d": "%D"})
+
+    stoch_lines = (
+        alt.Chart(stoch_data)
+        .mark_line(size=2)
         .encode(
             alt.X("yearmonthdate(Date):O").axis(labelAngle=-45, title="Date"),
-            alt.Y("stoch_k:Q").title("Stochastic K9").scale(domain=[0, 100]),
+            alt.Y("value:Q").title("Stochastic K9/D3").scale(domain=[0, 100]),
+            color=alt.Color(
+                "Line:N",
+                scale=alt.Scale(domain=["%K", "%D"], range=["#1f77b4", "#ff7f0e"]),
+                legend=alt.Legend(title="Stochastic", orient="top"),
+            ),
+            tooltip=[
+                alt.Tooltip("Date:T", title="Date", format="%Y-%m-%d"),
+                alt.Tooltip("Line:N", title="Line"),
+                alt.Tooltip("value:Q", title="Value", format=".2f"),
+            ],
         )
         .properties(height=100)
     )
@@ -285,7 +310,7 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
         .encode(y="y:Q")
     )
 
-    stoch_with_lines = stoch_chart + oversold_line + overbought_line
+    stoch_with_lines = stoch_lines + oversold_line + overbought_line
 
     # Combine all charts vertically
     combined_chart = (
@@ -359,7 +384,11 @@ def create_institutional_chart(inst_data, stock_id, raw_data):
                 scale=color_scale,
                 legend=alt.Legend(title="Investor Type"),
             ),
-            tooltip=["date:T", "category:N", "net:Q"],
+            tooltip=[
+                alt.Tooltip("date:T", title="Date", format="%Y-%m-%d"),
+                alt.Tooltip("category:N", title="Investor Type"),
+                alt.Tooltip("net:Q", title="Net Buy/Sell", format=",.0f"),
+            ],
         )
     )
 
@@ -371,7 +400,10 @@ def create_institutional_chart(inst_data, stock_id, raw_data):
         .encode(
             x=alt.X("yearmonthdate(date):O"),
             y=alt.Y("close:Q", title="Stock Price (TWD)"),
-            tooltip=["date:T", "close:Q"],
+            tooltip=[
+                alt.Tooltip("date:T", title="Date", format="%Y-%m-%d"),
+                alt.Tooltip("close:Q", title="Stock Price", format=".2f"),
+            ],
         )
     )
 
