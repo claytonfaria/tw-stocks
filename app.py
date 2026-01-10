@@ -4,6 +4,8 @@ import pandas_ta as ta
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # 1. Config and Title
 st.set_page_config(page_title="Taiwan Stock Dashboard", layout="wide")
@@ -151,6 +153,91 @@ def fetch_institutional_data(stock_id, days=90):
     except Exception as e:
         st.error(f"Error fetching institutional data: {str(e)}")
         return pd.DataFrame()
+
+
+def create_institutional_chart(inst_data, stock_id, raw_data):
+    """Create a chart showing institutional investor buy/sell with stock price overlay."""
+    if inst_data.empty or stock_id not in raw_data:
+        return None
+
+    # Get stock price data
+    stock_df = raw_data[stock_id].copy()
+    stock_df.index = pd.to_datetime(stock_df.index)
+
+    # Prepare institutional data
+    inst_pivot = inst_data.pivot_table(
+        index="date",
+        columns="category",
+        values="net",
+        aggfunc="sum",
+    ).reset_index()
+    inst_pivot["date"] = pd.to_datetime(inst_pivot["date"])
+
+    # Filter stock data to match institutional data date range
+    min_date = inst_pivot["date"].min()
+    max_date = inst_pivot["date"].max()
+    stock_df = stock_df[(stock_df.index >= min_date) & (stock_df.index <= max_date)]
+
+    # Create figure with secondary y-axis
+    fig = make_subplots(
+        rows=1,
+        cols=1,
+        specs=[[{"secondary_y": True}]],
+    )
+
+    # Add bar charts for each investor type
+    categories = [
+        ("Foreign Investors (外資)", "#1f77b4"),
+        ("Investment Trust (投信)", "#9467bd"),
+        ("Dealers (自營商)", "#ff7f0e"),
+    ]
+
+    for cat, color in categories:
+        if cat in inst_pivot.columns:
+            fig.add_trace(
+                go.Bar(
+                    x=inst_pivot["date"],
+                    y=inst_pivot[cat],
+                    name=cat,
+                    marker_color=color,
+                    opacity=0.7,
+                ),
+                secondary_y=False,
+            )
+
+    # Add stock price line
+    fig.add_trace(
+        go.Scatter(
+            x=stock_df.index,
+            y=stock_df["Close"],
+            name="Stock Price",
+            line=dict(color="#2ca02c", width=2),
+            yaxis="y2",
+        ),
+        secondary_y=True,
+    )
+
+    # Update layout
+    fig.update_layout(
+        title=f"Institutional Investor Activity - {stock_id}",
+        xaxis_title="Date",
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
+        height=500,
+        barmode="relative",
+    )
+
+    # Update y-axes
+    fig.update_yaxes(title_text="Net Buy/Sell (shares)", secondary_y=False)
+    fig.update_yaxes(title_text="Stock Price (TWD)", secondary_y=True)
+
+    return fig
 
 
 # Force refresh button
@@ -367,6 +454,13 @@ if raw_data:
             inst_data = fetch_institutional_data(selected_ticker, days_back)
 
         if not inst_data.empty:
+            # Create and display chart
+            chart = create_institutional_chart(inst_data, selected_ticker, raw_data)
+            if chart:
+                st.plotly_chart(chart, width="stretch")
+
+            st.divider()
+
             col_left, col_right = st.columns([3, 1])
 
             with col_left:
