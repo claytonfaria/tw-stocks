@@ -164,19 +164,16 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
 
     df = raw_data[stock_id].copy()
 
-    print(df.tail(days))
-
     # Calculate Stochastic K
     stoch = ta.stoch(df["High"], df["Low"], df["Close"], k=9)
     df["stoch_k"] = stoch["STOCHk_9_3_3"] if stoch is not None else None
 
+    # Reset index to get Date as a column (keeps original OHLC column names)
     df = df.reset_index()
-    # Keep original OHLC column names from yfinance
-    df.columns = ["Date", "Open", "High", "Low", "Close", "Volume", "stoch_k"]
+    df = df.rename(columns={"index": "Date"})
 
     # Take last N days based on parameter
     df = df.tail(days)
-    print(df)
 
     # Price candlestick chart - Taiwan style: red = up, green = down
     open_close_color = (
