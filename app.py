@@ -174,7 +174,7 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
 
     # Take last N days based on parameter
     df = df.tail(days)
-
+    print(df)
     # Price candlestick chart - Taiwan style: red = up, green = down
     open_close_color = (
         alt.when("datum.Close >= datum.Open")
@@ -185,6 +185,13 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
     base_price = alt.Chart(df).encode(
         alt.X("Date:T").axis(format="%m/%d", labelAngle=-45, title=None),
         color=open_close_color,
+        tooltip=[
+            alt.Tooltip("Date:T", title="Date", format="%Y-%m-%d"),
+            alt.Tooltip("Open:Q", title="Open", format=".2f"),
+            alt.Tooltip("High:Q", title="High", format=".2f"),
+            alt.Tooltip("Low:Q", title="Low", format=".2f"),
+            alt.Tooltip("Close:Q", title="Close", format=".2f"),
+        ],
     )
 
     price_rule = base_price.mark_rule().encode(
