@@ -164,33 +164,37 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
 
     df = raw_data[stock_id].copy()
 
+    print(df.tail(days))
+
     # Calculate Stochastic K
     stoch = ta.stoch(df["High"], df["Low"], df["Close"], k=9)
     df["stoch_k"] = stoch["STOCHk_9_3_3"] if stoch is not None else None
 
     df = df.reset_index()
-    df.columns = ["date", "open", "high", "low", "close", "volume", "stoch_k"]
+    # Keep original OHLC column names from yfinance
+    df.columns = ["Date", "Open", "High", "Low", "Close", "Volume", "stoch_k"]
 
     # Take last N days based on parameter
     df = df.tail(days)
+    print(df)
 
-    # Price candlestick chart
+    # Price candlestick chart - Taiwan style: red = up, green = down
     open_close_color = (
-        alt.when("datum.open <= datum.close")
-        .then(alt.value("#06982d"))
-        .otherwise(alt.value("#ae1325"))
+        alt.when("datum.Close >= datum.Open")
+        .then(alt.value("#ae1325"))  # Red for up (close >= open)
+        .otherwise(alt.value("#06982d"))  # Green for down (close < open)
     )
 
     base_price = alt.Chart(df).encode(
-        alt.X("date:T").axis(format="%m/%d", labelAngle=-45, title=None),
+        alt.X("Date:T").axis(format="%m/%d", labelAngle=-45, title=None),
         color=open_close_color,
     )
 
     price_rule = base_price.mark_rule().encode(
-        alt.Y("low:Q").title("Price").scale(zero=False), alt.Y2("high:Q")
+        alt.Y("Low:Q").title("Price").scale(zero=False), alt.Y2("High:Q")
     )
 
-    price_bar = base_price.mark_bar().encode(alt.Y("open:Q"), alt.Y2("close:Q"))
+    price_bar = base_price.mark_bar().encode(alt.Y("Open:Q"), alt.Y2("Close:Q"))
 
     price_chart = (price_rule + price_bar).properties(height=250)
 
@@ -199,8 +203,8 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
         alt.Chart(df)
         .mark_bar(opacity=0.7)
         .encode(
-            alt.X("date:T").axis(format="%m/%d", labelAngle=-45, title=None),
-            alt.Y("volume:Q").title("Volume"),
+            alt.X("Date:T").axis(format="%m/%d", labelAngle=-45, title=None),
+            alt.Y("Volume:Q").title("Volume"),
             color=open_close_color,
         )
         .properties(height=100)
@@ -211,7 +215,7 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
         alt.Chart(df)
         .mark_line(color="#1f77b4", size=2)
         .encode(
-            alt.X("date:T").axis(format="%m/%d", labelAngle=-45).title("Date"),
+            alt.X("Date:T").axis(format="%m/%d", labelAngle=-45).title("Date"),
             alt.Y("stoch_k:Q").title("Stochastic K").scale(domain=[0, 100]),
         )
         .properties(height=100)
