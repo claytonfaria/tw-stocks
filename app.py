@@ -84,18 +84,20 @@ def flatten_multiindex_columns(df):
 def fetch_raw_data(ticker_list):
     """Fetch raw stock data from yfinance (cached)."""
     raw_data = {}
+    fetch_time = pd.Timestamp.now(tz="Asia/Taipei").strftime("%Y-%m-%d %H:%M:%S")
     for symbol in ticker_list:
         full_symbol = f"{symbol}.TW"
         df = yf.download(full_symbol, period="2y", progress=False)
         if not df.empty:
             df = flatten_multiindex_columns(df)
             raw_data[symbol] = df
-    return raw_data
+    return raw_data, fetch_time
 
 
 @st.cache_data(ttl=3600)
 def fetch_institutional_data(stock_id, days=90):
     """Fetch institutional investor data from FinMind API."""
+    fetch_time = pd.Timestamp.now(tz="Asia/Taipei").strftime("%Y-%m-%d %H:%M:%S")
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days)
 
@@ -150,11 +152,14 @@ def fetch_institutional_data(stock_id, days=90):
             # Combine grouped data with three major total
             result = pd.concat([grouped, three_major], ignore_index=True)
 
-            return result.sort_values(["date", "category"], ascending=[False, True])
-        return pd.DataFrame()
+            sorted_result = result.sort_values(
+                ["date", "category"], ascending=[False, True]
+            )
+            return sorted_result, fetch_time
+        return pd.DataFrame(), fetch_time
     except Exception as e:
         st.error(f"Error fetching institutional data: {str(e)}")
-        return pd.DataFrame()
+        return pd.DataFrame(), fetch_time
 
 
 def create_candlestick_chart(stock_id, raw_data, days=90):
@@ -528,8 +533,7 @@ def process_data(raw_data, vol_sma_len, stoch_k_len, k_thresh):
 # 3. App Execution
 # Fetch raw data (cached, only happens once per hour)
 with st.spinner("Fetching data from Yahoo Finance..."):
-    raw_data = fetch_raw_data(raw_tickers)
-    refresh_time = pd.Timestamp.now(tz="Asia/Taipei").strftime("%Y-%m-%d %H:%M:%S")
+    raw_data, refresh_time = fetch_raw_data(raw_tickers)
 
 if raw_data:
     # Get the latest date from the first stock for Close column header
@@ -538,7 +542,7 @@ if raw_data:
     # Get ticker IDs
     ticker_ids = list(raw_data.keys())
 
-    st.caption(f"Last refreshed: {refresh_time}")
+    st.caption(f"Stock data last refreshed: {refresh_time}")
 
     # Define page functions
     def historical_data_page():
@@ -683,11 +687,12 @@ if raw_data:
             # Display institutional investor data
             st.subheader("Institutional Investor Activity")
             with st.spinner(f"Fetching institutional data for {selected_ticker}..."):
-                inst_data = fetch_institutional_data(
+                inst_data, inst_fetch_time = fetch_institutional_data(
                     selected_ticker, institutional_days
                 )
 
             if not inst_data.empty:
+                st.caption(f"Institutional data last refreshed: {inst_fetch_time}")
                 # Create and display chart
                 chart = create_institutional_chart(inst_data, selected_ticker, raw_data)
                 if chart:
