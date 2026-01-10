@@ -425,92 +425,100 @@ if raw_data:
 
     st.subheader("Summary")
     st.caption(f"Last refreshed: {refresh_time}")
-    st.dataframe(
-        data_table,
-        width="stretch",
-        height="content",
-        column_config=column_config,
-    )
 
-    # Institutional Data Section
-    st.divider()
-    st.subheader("📊 Institutional Investor Data")
+    # Create tabs for different views
+    tab1, tab2 = st.tabs(["📈 Historical Data", "📊 Institutional Investors"])
 
-    # Extract ticker IDs for selection (remove the URL part)
-    ticker_ids = [t.split("=")[-1].replace("TWSE%3A", "") for t in data_table["Ticker"]]
-
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        selected_ticker = st.selectbox(
-            "Select Ticker", options=ticker_ids, key="inst_ticker_select"
+    with tab1:
+        st.dataframe(
+            data_table,
+            width="stretch",
+            height="content",
+            column_config=column_config,
         )
 
-    with col2:
-        days_back = st.slider("Days of History", 30, 180, 90, key="inst_days")
+    with tab2:
+        # Extract ticker IDs for selection (remove the URL part)
+        ticker_ids = [
+            t.split("=")[-1].replace("TWSE%3A", "") for t in data_table["Ticker"]
+        ]
 
-    if selected_ticker:
-        with st.spinner(f"Fetching institutional data for {selected_ticker}..."):
-            inst_data = fetch_institutional_data(selected_ticker, days_back)
+        col1, col2 = st.columns([2, 1])
 
-        if not inst_data.empty:
-            # Create and display chart
-            chart = create_institutional_chart(inst_data, selected_ticker, raw_data)
-            if chart:
-                st.plotly_chart(chart, width="stretch")
+        with col1:
+            selected_ticker = st.selectbox(
+                "Select Ticker", options=ticker_ids, key="inst_ticker_select"
+            )
 
-            st.divider()
+        with col2:
+            days_back = st.slider("Days of History", 30, 180, 90, key="inst_days")
 
-            col_left, col_right = st.columns([3, 1])
+        if selected_ticker:
+            with st.spinner(f"Fetching institutional data for {selected_ticker}..."):
+                inst_data = fetch_institutional_data(selected_ticker, days_back)
 
-            with col_left:
-                st.caption(f"Latest: {inst_data['date'].max()}")
-                st.dataframe(
-                    inst_data,
-                    width="stretch",
-                    height=400,
-                    column_config={
-                        "date": "Date",
-                        "stock_id": "Ticker",
-                        "category": "Investor Type",
-                        "buy": st.column_config.NumberColumn("Buy", format="%d"),
-                        "sell": st.column_config.NumberColumn("Sell", format="%d"),
-                        "net": st.column_config.NumberColumn("Net", format="%d"),
-                    },
-                    hide_index=True,
-                )
-
-            with col_right:
-                st.caption("Summary (Latest Date)")
-                latest_data = inst_data[inst_data["date"] == inst_data["date"].max()]
-
-                # Show Three Major first
-                three_major = latest_data[
-                    latest_data["category"]
-                    == "Three Major Institutional Investors (三大法人)"
-                ]
-                if not three_major.empty:
-                    row = three_major.iloc[0]
-                    st.metric("Three Major Buy", f"{row['buy']:,}")
-                    st.metric("Three Major Sell", f"{row['sell']:,}")
-                    st.metric("Three Major Net", f"{row['net']:,}", delta=row["net"])
+            if not inst_data.empty:
+                # Create and display chart
+                chart = create_institutional_chart(inst_data, selected_ticker, raw_data)
+                if chart:
+                    st.plotly_chart(chart, use_container_width=True)
 
                 st.divider()
 
-                # Show breakdown by investor type (excluding the total)
-                st.caption("Breakdown by Type")
-                breakdown = latest_data[
-                    latest_data["category"]
-                    != "Three Major Institutional Investors (三大法人)"
-                ].sort_values("category")
+                col_left, col_right = st.columns([3, 1])
 
-                for _, row in breakdown.iterrows():
-                    with st.expander(row["category"]):
-                        st.metric("Buy", f"{row['buy']:,}")
-                        st.metric("Sell", f"{row['sell']:,}")
-                        st.metric("Net", f"{row['net']:,}")
-        else:
-            st.info(f"No institutional data available for {selected_ticker}")
+                with col_left:
+                    st.caption(f"Latest: {inst_data['date'].max()}")
+                    st.dataframe(
+                        inst_data,
+                        width="stretch",
+                        height=400,
+                        column_config={
+                            "date": "Date",
+                            "stock_id": "Ticker",
+                            "category": "Investor Type",
+                            "buy": st.column_config.NumberColumn("Buy", format="%d"),
+                            "sell": st.column_config.NumberColumn("Sell", format="%d"),
+                            "net": st.column_config.NumberColumn("Net", format="%d"),
+                        },
+                        hide_index=True,
+                    )
+
+                with col_right:
+                    st.caption("Summary (Latest Date)")
+                    latest_data = inst_data[
+                        inst_data["date"] == inst_data["date"].max()
+                    ]
+
+                    # Show Three Major first
+                    three_major = latest_data[
+                        latest_data["category"]
+                        == "Three Major Institutional Investors (三大法人)"
+                    ]
+                    if not three_major.empty:
+                        row = three_major.iloc[0]
+                        st.metric("Three Major Buy", f"{row['buy']:,}")
+                        st.metric("Three Major Sell", f"{row['sell']:,}")
+                        st.metric(
+                            "Three Major Net", f"{row['net']:,}", delta=row["net"]
+                        )
+
+                    st.divider()
+
+                    # Show breakdown by investor type (excluding the total)
+                    st.caption("Breakdown by Type")
+                    breakdown = latest_data[
+                        latest_data["category"]
+                        != "Three Major Institutional Investors (三大法人)"
+                    ].sort_values("category")
+
+                    for _, row in breakdown.iterrows():
+                        with st.expander(row["category"]):
+                            st.metric("Buy", f"{row['buy']:,}")
+                            st.metric("Sell", f"{row['sell']:,}")
+                            st.metric("Net", f"{row['net']:,}")
+            else:
+                st.info(f"No institutional data available for {selected_ticker}")
 
 else:
     st.error("Could not fetch data. Please check your internet connection.")
