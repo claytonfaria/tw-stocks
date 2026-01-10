@@ -4,12 +4,15 @@ import pandas_ta as ta
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import altair as alt
 
 # 1. Config and Title
 st.set_page_config(page_title="Taiwan Stock Dashboard", layout="wide")
 st.title("🇹🇼 Taiwan Market")
+
+# Initialize session state and query params
+if "selected_ticker" not in st.session_state:
+    st.session_state.selected_ticker = None
 
 raw_tickers = [
     "2330",
@@ -155,14 +158,58 @@ def fetch_institutional_data(stock_id, days=90):
         return pd.DataFrame()
 
 
+def create_candlestick_chart(stock_id, raw_data):
+    """Create an Altair candlestick chart for the selected ticker."""
+    if stock_id not in raw_data:
+        return None
+
+    df = raw_data[stock_id].copy()
+    df = df.reset_index()
+    df.columns = ["date", "open", "high", "low", "close", "volume"]
+
+    # Take last 90 days for better mobile visibility
+    df = df.tail(90)
+
+    open_close_color = (
+        alt.when("datum.open <= datum.close")
+        .then(alt.value("#06982d"))
+        .otherwise(alt.value("#ae1325"))
+    )
+
+    base = alt.Chart(df).encode(
+        alt.X("date:T").axis(format="%m/%d", labelAngle=-45).title("Date"),
+        color=open_close_color,
+    )
+
+    rule = base.mark_rule().encode(
+        alt.Y("low:Q").title("Price").scale(zero=False), alt.Y2("high:Q")
+    )
+
+    bar = base.mark_bar().encode(alt.Y("open:Q"), alt.Y2("close:Q"))
+
+    chart = (
+        (rule + bar)
+        .properties(
+            title=f"Candlestick Chart - {stock_id} (Last 90 Days)",
+            width="container",
+            height=400,
+        )
+        .interactive()
+    )
+
+    return chart
+
+
 def create_institutional_chart(inst_data, stock_id, raw_data):
-    """Create a chart showing institutional investor buy/sell with stock price overlay."""
+    """Create an Altair chart showing institutional investor buy/sell with stock price overlay."""
     if inst_data.empty or stock_id not in raw_data:
         return None
 
     # Get stock price data
     stock_df = raw_data[stock_id].copy()
-    stock_df.index = pd.to_datetime(stock_df.index)
+    stock_df = stock_df.reset_index()
+    stock_df.columns = ["date", "open", "high", "low", "close", "volume"]
+    stock_df["date"] = pd.to_datetime(stock_df["date"])
 
     # Prepare institutional data
     inst_pivot = inst_data.pivot_table(
@@ -176,68 +223,74 @@ def create_institutional_chart(inst_data, stock_id, raw_data):
     # Filter stock data to match institutional data date range
     min_date = inst_pivot["date"].min()
     max_date = inst_pivot["date"].max()
-    stock_df = stock_df[(stock_df.index >= min_date) & (stock_df.index <= max_date)]
+    stock_df = stock_df[(stock_df["date"] >= min_date) & (stock_df["date"] <= max_date)]
 
-    # Create figure with secondary y-axis
-    fig = make_subplots(
-        rows=1,
-        cols=1,
-        specs=[[{"secondary_y": True}]],
+    # Prepare data for Altair - need to melt for proper layering
+    inst_melted = inst_pivot.melt(
+        id_vars=["date"],
+        value_vars=[
+            "Foreign Investors (外資)",
+            "Investment Trust (投信)",
+            "Dealers (自營商)",
+        ],
+        var_name="category",
+        value_name="net",
     )
 
-    # Add bar charts for each investor type
-    categories = [
-        ("Foreign Investors (外資)", "#1f77b4"),
-        ("Investment Trust (投信)", "#9467bd"),
-        ("Dealers (自營商)", "#ff7f0e"),
-    ]
-
-    for cat, color in categories:
-        if cat in inst_pivot.columns:
-            fig.add_trace(
-                go.Bar(
-                    x=inst_pivot["date"],
-                    y=inst_pivot[cat],
-                    name=cat,
-                    marker_color=color,
-                    opacity=0.7,
-                ),
-                secondary_y=False,
-            )
-
-    # Add stock price line
-    fig.add_trace(
-        go.Scatter(
-            x=stock_df.index,
-            y=stock_df["Close"],
-            name="Stock Price",
-            line=dict(color="#2ca02c", width=2),
-            yaxis="y2",
-        ),
-        secondary_y=True,
+    # Create color scale
+    color_scale = alt.Scale(
+        domain=[
+            "Foreign Investors (外資)",
+            "Investment Trust (投信)",
+            "Dealers (自營商)",
+        ],
+        range=["#1f77b4", "#9467bd", "#ff7f0e"],
     )
 
-    # Update layout
-    fig.update_layout(
-        title=f"Institutional Investor Activity - {stock_id}",
-        xaxis_title="Date",
-        hovermode="x unified",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-        ),
-        height=500,
-        barmode="relative",
+    # Create bar chart for institutional investors
+    bars = (
+        alt.Chart(inst_melted)
+        .mark_bar(opacity=0.7)
+        .encode(
+            x=alt.X(
+                "date:T", axis=alt.Axis(format="%m/%d", labelAngle=-45), title="Date"
+            ),
+            y=alt.Y("net:Q", title="Net Buy/Sell (shares)"),
+            color=alt.Color(
+                "category:N",
+                scale=color_scale,
+                legend=alt.Legend(title="Investor Type"),
+            ),
+            tooltip=["date:T", "category:N", "net:Q"],
+        )
     )
 
-    # Update y-axes
-    fig.update_yaxes(title_text="Net Buy/Sell (shares)", secondary_y=False)
-    fig.update_yaxes(title_text="Stock Price (TWD)", secondary_y=True)
+    # Create line chart for stock price on secondary axis
+    # We'll scale the price to fit within the same visual space
+    line = (
+        alt.Chart(stock_df)
+        .mark_line(color="#2ca02c", size=2)
+        .encode(
+            x=alt.X("date:T"),
+            y=alt.Y("close:Q", title="Stock Price (TWD)"),
+            tooltip=["date:T", "close:Q"],
+        )
+    )
 
-    return fig
+    # Layer charts with resolve to have independent y-axes
+    chart = (
+        alt.layer(bars, line)
+        .resolve_scale(y="independent")
+        .properties(
+            title=f"Institutional Investor Activity - {stock_id}",
+            width="container",
+            height=400,
+        )
+        .configure_legend(orient="top")
+        .interactive()
+    )
+
+    return chart
 
 
 # Force refresh button
@@ -369,10 +422,8 @@ if raw_data:
     # Adjust index to start from 1 for display
     data_table.index = data_table.index + 1
 
-    # Create TradingView URLs for Ticker column
-    data_table["Ticker"] = data_table["Ticker"].apply(
-        lambda x: f"https://www.tradingview.com/chart/?symbol=TWSE%3A{x}"
-    )
+    # Keep ticker as plain text for button display
+    ticker_ids = data_table["Ticker"].tolist()
 
     # Format volume columns with thousands separators
     data_table["Volume"] = data_table["Volume"].apply(
@@ -384,12 +435,10 @@ if raw_data:
 
     # Configure column formatting
     column_config = {
-        "Ticker": st.column_config.LinkColumn(
+        "Ticker": st.column_config.TextColumn(
             "Ticker",
-            help="Click to view on TradingView",
-            display_text=r"https://www\.tradingview\.com/chart/\?symbol=TWSE%3A(.*)",
+            help="Ticker symbol",
             width="small",
-            pinned=True,
         ),
         "Close": st.column_config.NumberColumn(
             f"Close ({latest_date})",
@@ -426,34 +475,69 @@ if raw_data:
     st.subheader("Summary")
     st.caption(f"Last refreshed: {refresh_time}")
 
-    # Create tabs for different views
-    tab1, tab2 = st.tabs(["📈 Historical Data", "📊 Institutional Investors"])
+    # Define page functions
+    def historical_data_page():
+        st.header("📈 Historical data")
 
-    with tab1:
-        st.dataframe(
+        # Display the formatted dataframe with row selection
+        event = st.dataframe(
             data_table,
-            width="stretch",
+            use_container_width=True,
             height="content",
             column_config=column_config,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="data_table",
         )
 
-    with tab2:
-        # Extract ticker IDs for selection (remove the URL part)
-        ticker_ids = [
-            t.split("=")[-1].replace("TWSE%3A", "") for t in data_table["Ticker"]
-        ]
+        # Handle row selection - navigate to ticker details
+        if event.selection and event.selection.rows:
+            selected_row_idx = event.selection.rows[0]
+            selected_ticker = data_table.iloc[selected_row_idx]["Ticker"]
+            # Set query param and navigate
+            st.query_params.ticker = selected_ticker
+            st.query_params.page = "details"
+            st.rerun()
+
+    def ticker_details_page():
+        st.header("📊 Ticker details")
+
+        # Get ticker from query params or default to first
+        selected_ticker = st.query_params.get("ticker", ticker_ids[0])
+        if selected_ticker not in ticker_ids:
+            selected_ticker = ticker_ids[0]
+
+        default_index = ticker_ids.index(selected_ticker)
 
         col1, col2 = st.columns([2, 1])
 
         with col1:
+            # Update query param when selection changes
+            def on_ticker_change():
+                st.query_params.ticker = st.session_state.ticker_details_select
+
             selected_ticker = st.selectbox(
-                "Select Ticker", options=ticker_ids, key="inst_ticker_select"
+                "Select Ticker",
+                options=ticker_ids,
+                index=default_index,
+                key="ticker_details_select",
+                on_change=on_ticker_change,
             )
 
         with col2:
             days_back = st.slider("Days of History", 30, 180, 90, key="inst_days")
 
         if selected_ticker:
+            # Display candlestick chart
+            st.subheader(f"Price Chart - {selected_ticker}")
+            candle_chart = create_candlestick_chart(selected_ticker, raw_data)
+            if candle_chart:
+                st.altair_chart(candle_chart, use_container_width=True)
+
+            st.divider()
+
+            # Display institutional investor data
+            st.subheader("Institutional Investor Activity")
             with st.spinner(f"Fetching institutional data for {selected_ticker}..."):
                 inst_data = fetch_institutional_data(selected_ticker, days_back)
 
@@ -461,7 +545,7 @@ if raw_data:
                 # Create and display chart
                 chart = create_institutional_chart(inst_data, selected_ticker, raw_data)
                 if chart:
-                    st.plotly_chart(chart, use_container_width=True)
+                    st.altair_chart(chart, use_container_width=True)
 
                 st.divider()
 
@@ -471,7 +555,7 @@ if raw_data:
                     st.caption(f"Latest: {inst_data['date'].max()}")
                     st.dataframe(
                         inst_data,
-                        width="stretch",
+                        use_container_width=True,
                         height=400,
                         column_config={
                             "date": "Date",
@@ -519,6 +603,18 @@ if raw_data:
                             st.metric("Net", f"{row['net']:,}")
             else:
                 st.info(f"No institutional data available for {selected_ticker}")
+
+    # Set up navigation
+    current_page = st.query_params.get("page", "data")
+
+    # Set up navigation with list of pages
+    pages = [
+        st.Page(historical_data_page, title="Historical data", icon="📈"),
+        st.Page(ticker_details_page, title="Ticker details", icon="📊"),
+    ]
+
+    pg = st.navigation(pages, position="sidebar")
+    pg.run()
 
 else:
     st.error("Could not fetch data. Please check your internet connection.")
