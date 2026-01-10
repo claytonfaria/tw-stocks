@@ -67,11 +67,10 @@ raw_tickers = [
     "6505",
 ]
 
-# Sidebar for controls
-st.sidebar.header("Settings")
-vol_sma_length = st.sidebar.slider("Volume SMA Length", 20, 120, 60)
-stoch_k_length = st.sidebar.slider("Stochastic K Length", 5, 20, 9)
-k_threshold = st.sidebar.slider("K Threshold", 10, 50, 20)
+# Default settings
+default_vol_sma_length = 60
+default_stoch_k_length = 9
+default_k_threshold = 20
 
 
 def flatten_multiindex_columns(df):
@@ -158,7 +157,7 @@ def fetch_institutional_data(stock_id, days=90):
         return pd.DataFrame()
 
 
-def create_candlestick_chart(stock_id, raw_data):
+def create_candlestick_chart(stock_id, raw_data, days=90):
     """Create an Altair candlestick chart for the selected ticker."""
     if stock_id not in raw_data:
         return None
@@ -167,8 +166,8 @@ def create_candlestick_chart(stock_id, raw_data):
     df = df.reset_index()
     df.columns = ["date", "open", "high", "low", "close", "volume"]
 
-    # Take last 90 days for better mobile visibility
-    df = df.tail(90)
+    # Take last N days based on parameter
+    df = df.tail(days)
 
     open_close_color = (
         alt.when("datum.open <= datum.close")
@@ -190,7 +189,7 @@ def create_candlestick_chart(stock_id, raw_data):
     chart = (
         (rule + bar)
         .properties(
-            title=f"Candlestick Chart - {stock_id} (Last 90 Days)",
+            title=f"Candlestick Chart - {stock_id} (Last {days} Days)",
             width="container",
             height=400,
         )
@@ -294,7 +293,6 @@ def create_institutional_chart(inst_data, stock_id, raw_data):
 
 
 # Force refresh button
-st.sidebar.divider()
 if st.sidebar.button("🔄 Force Refresh Data", width="stretch"):
     fetch_raw_data.clear()
     fetch_institutional_data.clear()
@@ -406,84 +404,93 @@ if raw_data:
     # Get the latest date from the first stock for Close column header
     latest_date = list(raw_data.values())[0].index[-1].strftime("%Y-%m-%d")
 
-    # Process data with current settings (runs every time settings change)
-    data_table = process_data(
-        raw_data,
-        vol_sma_length,
-        stoch_k_length,
-        k_threshold,
-    )
-
-    # Sort by matching conditions (descending)
-    data_table = data_table.sort_values(by="Matches", ascending=False).reset_index(
-        drop=True
-    )
-
-    # Adjust index to start from 1 for display
-    data_table.index = data_table.index + 1
-
-    # Get ticker IDs before formatting
-    ticker_ids = data_table["Ticker"].tolist()
-
-    # Format volume columns with thousands separators
-    data_table["Volume"] = data_table["Volume"].apply(
-        lambda x: f"{x:,}" if pd.notna(x) else None
-    )
-    data_table[f"VolSMA{vol_sma_length}"] = data_table[f"VolSMA{vol_sma_length}"].apply(
-        lambda x: f"{int(x):,}" if pd.notna(x) else None
-    )
-
-    # Get ticker IDs before adding URLs
-    ticker_ids = data_table["Ticker"].tolist()
-
-    # Convert Ticker column to URL format for navigation
-    data_table["Ticker"] = data_table["Ticker"].apply(lambda x: f"details?ticker={x}")
-
-    # Configure column formatting
-    column_config = {
-        "Ticker": st.column_config.LinkColumn(
-            "Ticker",
-            help="Click to view ticker details",
-            display_text=r"details\?ticker=(.*)",
-            width="small",
-        ),
-        "Close": st.column_config.NumberColumn(
-            f"Close ({latest_date})",
-            format="%.2f",
-        ),
-        "Volume": st.column_config.TextColumn(
-            "Volume",
-            width="small",
-        ),
-        f"VolSMA{vol_sma_length}": st.column_config.TextColumn(
-            f"VolSMA{vol_sma_length}",
-            width="small",
-        ),
-        f"K({stoch_k_length})": st.column_config.NumberColumn(
-            f"K({stoch_k_length})",
-            format="%.2f",
-            width="small",
-        ),
-        f"K < {k_threshold}": st.column_config.CheckboxColumn(
-            f"K < {k_threshold}",
-            width="small",
-        ),
-        f"Vol > {vol_sma_length} SMA": st.column_config.CheckboxColumn(
-            f"Vol > {vol_sma_length} SMA",
-            width="small",
-        ),
-        "Matches": st.column_config.NumberColumn(
-            "Matches",
-            format="%d",
-            width="small",
-        ),
-    }
+    # Get ticker IDs
+    ticker_ids = list(raw_data.keys())
 
     st.caption(f"Last refreshed: {refresh_time}")
 
     # Define page functions
     def historical_data_page():
         st.header("📈 Historical data")
+
+        # Sidebar settings for this page
+        st.sidebar.header("Table Settings")
+        vol_sma_length = st.sidebar.slider(
+            "Volume SMA Length", 20, 120, default_vol_sma_length
+        )
+        stoch_k_length = st.sidebar.slider(
+            "Stochastic K Length", 5, 20, default_stoch_k_length
+        )
+        k_threshold = st.sidebar.slider("K Threshold", 10, 50, default_k_threshold)
+
+        # Process data with current settings
+        data_table = process_data(
+            raw_data,
+            vol_sma_length,
+            stoch_k_length,
+            k_threshold,
+        )
+
+        # Sort by matching conditions (descending)
+        data_table = data_table.sort_values(by="Matches", ascending=False).reset_index(
+            drop=True
+        )
+
+        # Adjust index to start from 1 for display
+        data_table.index = data_table.index + 1
+
+        # Format volume columns with thousands separators
+        data_table["Volume"] = data_table["Volume"].apply(
+            lambda x: f"{x:,}" if pd.notna(x) else None
+        )
+        data_table[f"VolSMA{vol_sma_length}"] = data_table[
+            f"VolSMA{vol_sma_length}"
+        ].apply(lambda x: f"{int(x):,}" if pd.notna(x) else None)
+
+        # Convert Ticker column to URL format for navigation
+        data_table["Ticker"] = data_table["Ticker"].apply(
+            lambda x: f"details?ticker={x}"
+        )
+
+        # Configure column formatting
+        column_config = {
+            "Ticker": st.column_config.LinkColumn(
+                "Ticker",
+                help="Click to view ticker details",
+                display_text=r"details\?ticker=(.*)",
+                width="small",
+            ),
+            "Close": st.column_config.NumberColumn(
+                f"Close ({latest_date})",
+                format="%.2f",
+            ),
+            "Volume": st.column_config.TextColumn(
+                "Volume",
+                width="small",
+            ),
+            f"VolSMA{vol_sma_length}": st.column_config.TextColumn(
+                f"VolSMA{vol_sma_length}",
+                width="small",
+            ),
+            f"K({stoch_k_length})": st.column_config.NumberColumn(
+                f"K({stoch_k_length})",
+                format="%.2f",
+                width="small",
+            ),
+            f"K < {k_threshold}": st.column_config.CheckboxColumn(
+                f"K < {k_threshold}",
+                width="small",
+            ),
+            f"Vol > {vol_sma_length} SMA": st.column_config.CheckboxColumn(
+                f"Vol > {vol_sma_length} SMA",
+                width="small",
+            ),
+            "Matches": st.column_config.NumberColumn(
+                "Matches",
+                format="%d",
+                width="small",
+            ),
+        }
 
         # Display the formatted dataframe
         st.dataframe(
@@ -496,6 +503,15 @@ if raw_data:
 
     def ticker_details_page():
         st.header("📊 Ticker details")
+
+        # Sidebar settings for this page
+        st.sidebar.header("Chart Settings")
+        price_chart_days = st.sidebar.slider(
+            "Price Chart Days", 30, 365, 90, key="price_days"
+        )
+        institutional_days = st.sidebar.slider(
+            "Institutional History Days", 30, 180, 90, key="inst_days"
+        )
 
         # Get ticker from query params or default to first
         selected_ticker = st.query_params.get("ticker", ticker_ids[0])
@@ -520,12 +536,14 @@ if raw_data:
             )
 
         with col2:
-            days_back = st.slider("Days of History", 30, 180, 90, key="inst_days")
+            st.write("")  # Empty space for layout
 
         if selected_ticker:
             # Display candlestick chart
             st.subheader(f"Price Chart - {selected_ticker}")
-            candle_chart = create_candlestick_chart(selected_ticker, raw_data)
+            candle_chart = create_candlestick_chart(
+                selected_ticker, raw_data, price_chart_days
+            )
             if candle_chart:
                 st.altair_chart(candle_chart, use_container_width=True)
 
@@ -534,7 +552,9 @@ if raw_data:
             # Display institutional investor data
             st.subheader("Institutional Investor Activity")
             with st.spinner(f"Fetching institutional data for {selected_ticker}..."):
-                inst_data = fetch_institutional_data(selected_ticker, days_back)
+                inst_data = fetch_institutional_data(
+                    selected_ticker, institutional_days
+                )
 
             if not inst_data.empty:
                 # Create and display chart
