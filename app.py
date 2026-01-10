@@ -155,7 +155,7 @@ def fetch_institutional_data(stock_id, days=90):
 
 # Force refresh button
 st.sidebar.divider()
-if st.sidebar.button("🔄 Force Refresh Data", use_container_width=True):
+if st.sidebar.button("🔄 Force Refresh Data", width="stretch"):
     fetch_raw_data.clear()
     fetch_institutional_data.clear()
     st.rerun()
@@ -373,7 +373,7 @@ if raw_data:
                 st.caption(f"Latest: {inst_data['date'].max()}")
                 st.dataframe(
                     inst_data,
-                    use_container_width=True,
+                    width="stretch",
                     height=400,
                     column_config={
                         "date": "Date",
