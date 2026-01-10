@@ -158,45 +158,89 @@ def fetch_institutional_data(stock_id, days=90):
 
 
 def create_candlestick_chart(stock_id, raw_data, days=90):
-    """Create an Altair candlestick chart for the selected ticker."""
+    """Create an Altair candlestick chart with volume and stochastic K indicator."""
     if stock_id not in raw_data:
         return None
 
     df = raw_data[stock_id].copy()
+
+    # Calculate Stochastic K
+    stoch = ta.stoch(df["High"], df["Low"], df["Close"], k=9)
+    df["stoch_k"] = stoch["STOCHk_9_3_3"] if stoch is not None else None
+
     df = df.reset_index()
-    df.columns = ["date", "open", "high", "low", "close", "volume"]
+    df.columns = ["date", "open", "high", "low", "close", "volume", "stoch_k"]
 
     # Take last N days based on parameter
     df = df.tail(days)
 
+    # Price candlestick chart
     open_close_color = (
         alt.when("datum.open <= datum.close")
         .then(alt.value("#06982d"))
         .otherwise(alt.value("#ae1325"))
     )
 
-    base = alt.Chart(df).encode(
-        alt.X("date:T").axis(format="%m/%d", labelAngle=-45).title("Date"),
+    base_price = alt.Chart(df).encode(
+        alt.X("date:T").axis(format="%m/%d", labelAngle=-45, title=None),
         color=open_close_color,
     )
 
-    rule = base.mark_rule().encode(
+    price_rule = base_price.mark_rule().encode(
         alt.Y("low:Q").title("Price").scale(zero=False), alt.Y2("high:Q")
     )
 
-    bar = base.mark_bar().encode(alt.Y("open:Q"), alt.Y2("close:Q"))
+    price_bar = base_price.mark_bar().encode(alt.Y("open:Q"), alt.Y2("close:Q"))
 
-    chart = (
-        (rule + bar)
-        .properties(
-            title=f"Candlestick Chart - {stock_id} (Last {days} Days)",
-            width="container",
-            height=400,
+    price_chart = (price_rule + price_bar).properties(height=250)
+
+    # Volume chart
+    volume_chart = (
+        alt.Chart(df)
+        .mark_bar(opacity=0.7)
+        .encode(
+            alt.X("date:T").axis(format="%m/%d", labelAngle=-45, title=None),
+            alt.Y("volume:Q").title("Volume"),
+            color=open_close_color,
         )
-        .interactive()
+        .properties(height=100)
     )
 
-    return chart
+    # Stochastic K chart
+    stoch_chart = (
+        alt.Chart(df)
+        .mark_line(color="#1f77b4", size=2)
+        .encode(
+            alt.X("date:T").axis(format="%m/%d", labelAngle=-45).title("Date"),
+            alt.Y("stoch_k:Q").title("Stochastic K").scale(domain=[0, 100]),
+        )
+        .properties(height=100)
+    )
+
+    # Add reference lines for stochastic
+    oversold_line = (
+        alt.Chart(pd.DataFrame({"y": [20]}))
+        .mark_rule(color="red", strokeDash=[5, 5])
+        .encode(y="y:Q")
+    )
+
+    overbought_line = (
+        alt.Chart(pd.DataFrame({"y": [80]}))
+        .mark_rule(color="green", strokeDash=[5, 5])
+        .encode(y="y:Q")
+    )
+
+    stoch_with_lines = stoch_chart + oversold_line + overbought_line
+
+    # Combine all charts vertically
+    combined_chart = (
+        alt.vconcat(price_chart, volume_chart, stoch_with_lines)
+        .resolve_scale(color="independent")
+        .properties(title=f"Price Chart - {stock_id} (Last {days} Days)")
+        .configure_view(strokeWidth=0)
+    )
+
+    return combined_chart
 
 
 def create_institutional_chart(inst_data, stock_id, raw_data):
