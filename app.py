@@ -168,13 +168,18 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
     stoch = ta.stoch(df["High"], df["Low"], df["Close"], k=9)
     df["stoch_k"] = stoch["STOCHk_9_3_3"] if stoch is not None else None
 
+    # Calculate Volume SMA 60
+    df["vol_sma_60"] = ta.sma(df["Volume"], length=60)
+
     # Reset index to get Date as a column (keeps original OHLC column names)
     df = df.reset_index()
     df = df.rename(columns={"index": "Date"})
 
+    # Remove any rows with NaN values in OHLC data
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+
     # Take last N days based on parameter
     df = df.tail(days)
-    print(df)
     # Price candlestick chart - Taiwan style: red = up, green = down
     open_close_color = (
         alt.when("datum.Close >= datum.Open")
@@ -183,7 +188,7 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
     )
 
     base_price = alt.Chart(df).encode(
-        alt.X("Date:T").axis(format="%m/%d", labelAngle=-45, title=None),
+        alt.X("yearmonthdate(Date):O").axis(labelAngle=-45, title=None),
         color=open_close_color,
         tooltip=[
             alt.Tooltip("Date:T", title="Date", format="%Y-%m-%d"),
@@ -202,25 +207,35 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
 
     price_chart = (price_rule + price_bar).properties(height=250)
 
-    # Volume chart
-    volume_chart = (
+    # Volume chart with SMA 60
+    volume_bars = (
         alt.Chart(df)
         .mark_bar(opacity=0.7)
         .encode(
-            alt.X("Date:T").axis(format="%m/%d", labelAngle=-45, title=None),
+            alt.X("yearmonthdate(Date):O").axis(labelAngle=-45, title=None),
             alt.Y("Volume:Q").title("Volume"),
             color=open_close_color,
         )
-        .properties(height=100)
     )
+
+    volume_sma_line = (
+        alt.Chart(df)
+        .mark_line(color="orange", size=2)
+        .encode(
+            alt.X("yearmonthdate(Date):O"),
+            alt.Y("vol_sma_60:Q"),
+        )
+    )
+
+    volume_chart = (volume_bars + volume_sma_line).properties(height=100)
 
     # Stochastic K chart
     stoch_chart = (
         alt.Chart(df)
         .mark_line(color="#1f77b4", size=2)
         .encode(
-            alt.X("Date:T").axis(format="%m/%d", labelAngle=-45).title("Date"),
-            alt.Y("stoch_k:Q").title("Stochastic K").scale(domain=[0, 100]),
+            alt.X("yearmonthdate(Date):O").axis(labelAngle=-45, title="Date"),
+            alt.Y("stoch_k:Q").title("Stochastic K9").scale(domain=[0, 100]),
         )
         .properties(height=100)
     )
