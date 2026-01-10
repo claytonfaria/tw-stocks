@@ -422,7 +422,7 @@ if raw_data:
     # Adjust index to start from 1 for display
     data_table.index = data_table.index + 1
 
-    # Keep ticker as plain text for button display
+    # Get ticker IDs before formatting
     ticker_ids = data_table["Ticker"].tolist()
 
     # Format volume columns with thousands separators
@@ -433,11 +433,18 @@ if raw_data:
         lambda x: f"{int(x):,}" if pd.notna(x) else None
     )
 
+    # Get ticker IDs before adding URLs
+    ticker_ids = data_table["Ticker"].tolist()
+
+    # Convert Ticker column to URL format for navigation
+    data_table["Ticker"] = data_table["Ticker"].apply(lambda x: f"details?ticker={x}")
+
     # Configure column formatting
     column_config = {
-        "Ticker": st.column_config.TextColumn(
+        "Ticker": st.column_config.LinkColumn(
             "Ticker",
-            help="Ticker symbol",
+            help="Click to view ticker details",
+            display_text=r"details\?ticker=(.*)",
             width="small",
         ),
         "Close": st.column_config.NumberColumn(
@@ -472,32 +479,20 @@ if raw_data:
         ),
     }
 
-    st.subheader("Summary")
     st.caption(f"Last refreshed: {refresh_time}")
 
     # Define page functions
     def historical_data_page():
         st.header("📈 Historical data")
 
-        # Display the formatted dataframe with row selection
-        event = st.dataframe(
+        # Display the formatted dataframe
+        st.dataframe(
             data_table,
             use_container_width=True,
             height="content",
             column_config=column_config,
-            on_select="rerun",
-            selection_mode="single-row",
-            key="data_table",
+            hide_index=True,
         )
-
-        # Handle row selection - navigate to ticker details
-        if event.selection and event.selection.rows:
-            selected_row_idx = event.selection.rows[0]
-            selected_ticker = data_table.iloc[selected_row_idx]["Ticker"]
-            # Set query param and navigate
-            st.query_params.ticker = selected_ticker
-            st.query_params.page = "details"
-            st.rerun()
 
     def ticker_details_page():
         st.header("📊 Ticker details")
@@ -604,13 +599,12 @@ if raw_data:
             else:
                 st.info(f"No institutional data available for {selected_ticker}")
 
-    # Set up navigation
-    current_page = st.query_params.get("page", "data")
-
-    # Set up navigation with list of pages
+    # Set up navigation with simple list
     pages = [
-        st.Page(historical_data_page, title="Historical data", icon="📈"),
-        st.Page(ticker_details_page, title="Ticker details", icon="📊"),
+        st.Page(historical_data_page, title="Historical data", icon="📈", default=True),
+        st.Page(
+            ticker_details_page, title="Ticker details", icon="📊", url_path="details"
+        ),
     ]
 
     pg = st.navigation(pages, position="sidebar")
