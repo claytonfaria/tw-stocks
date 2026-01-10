@@ -626,7 +626,7 @@ if raw_data:
         # Display the formatted dataframe
         st.dataframe(
             data_table,
-            use_container_width=True,
+            width="stretch",
             height="content",
             column_config=column_config,
             hide_index=True,
@@ -676,7 +676,7 @@ if raw_data:
                 selected_ticker, raw_data, price_chart_days
             )
             if candle_chart:
-                st.altair_chart(candle_chart, use_container_width=True)
+                st.altair_chart(candle_chart, width="stretch")
 
             st.divider()
 
@@ -691,7 +691,7 @@ if raw_data:
                 # Create and display chart
                 chart = create_institutional_chart(inst_data, selected_ticker, raw_data)
                 if chart:
-                    st.altair_chart(chart, use_container_width=True)
+                    st.altair_chart(chart, width="stretch")
 
                 # st.divider()
 
@@ -701,7 +701,7 @@ if raw_data:
                 #     st.caption(f"Latest: {inst_data['date'].max()}")
                 #     st.dataframe(
                 #         inst_data,
-                #         use_container_width=True,
+                #         width="stretch",
                 #         height=400,
                 #         column_config={
                 #             "date": "Date",
