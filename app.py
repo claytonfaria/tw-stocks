@@ -171,6 +171,10 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
     # Calculate Volume SMA 60
     df["vol_sma_60"] = ta.sma(df["Volume"], length=60)
 
+    # Calculate Price SMAs
+    df["sma_20"] = ta.sma(df["Close"], length=20)
+    df["sma_200"] = ta.sma(df["Close"], length=200)
+
     # Reset index to get Date as a column (keeps original OHLC column names)
     df = df.reset_index()
     df = df.rename(columns={"index": "Date"})
@@ -205,7 +209,35 @@ def create_candlestick_chart(stock_id, raw_data, days=90):
 
     price_bar = base_price.mark_bar().encode(alt.Y("Open:Q"), alt.Y2("Close:Q"))
 
-    price_chart = (price_rule + price_bar).properties(height=250)
+    # Prepare SMA data for proper legend
+    sma_data = df[["Date", "sma_20", "sma_200"]].melt(
+        id_vars=["Date"], var_name="SMA", value_name="value"
+    )
+    sma_data["SMA"] = sma_data["SMA"].map({"sma_20": "SMA 20", "sma_200": "SMA 200"})
+
+    # SMA lines with legend
+    sma_lines = (
+        alt.Chart(sma_data)
+        .mark_line(size=2)
+        .encode(
+            alt.X("yearmonthdate(Date):O"),
+            alt.Y("value:Q"),
+            color=alt.Color(
+                "SMA:N",
+                scale=alt.Scale(
+                    domain=["SMA 20", "SMA 200"], range=["#FFA500", "#0000FF"]
+                ),
+                legend=alt.Legend(title="Moving Averages", orient="top"),
+            ),
+            strokeDash=alt.StrokeDash(
+                "SMA:N",
+                scale=alt.Scale(domain=["SMA 20", "SMA 200"], range=[[5, 5], [2, 2]]),
+                legend=None,
+            ),
+        )
+    )
+
+    price_chart = (price_rule + price_bar + sma_lines).properties(height=250)
 
     # Volume chart with SMA 60
     volume_bars = (
@@ -577,7 +609,7 @@ if raw_data:
             "Price Chart Days", 30, 365, 90, key="price_days"
         )
         institutional_days = st.sidebar.slider(
-            "Institutional History Days", 30, 180, 90, key="inst_days"
+            "Institutional History Days", 30, 180, 30, key="inst_days"
         )
 
         # Get ticker from query params or default to first
@@ -629,60 +661,60 @@ if raw_data:
                 if chart:
                     st.altair_chart(chart, use_container_width=True)
 
-                st.divider()
+                # st.divider()
 
-                col_left, col_right = st.columns([3, 1])
+                # col_left, col_right = st.columns([3, 1])
 
-                with col_left:
-                    st.caption(f"Latest: {inst_data['date'].max()}")
-                    st.dataframe(
-                        inst_data,
-                        use_container_width=True,
-                        height=400,
-                        column_config={
-                            "date": "Date",
-                            "stock_id": "Ticker",
-                            "category": "Investor Type",
-                            "buy": st.column_config.NumberColumn("Buy", format="%d"),
-                            "sell": st.column_config.NumberColumn("Sell", format="%d"),
-                            "net": st.column_config.NumberColumn("Net", format="%d"),
-                        },
-                        hide_index=True,
-                    )
+                # with col_left:
+                #     st.caption(f"Latest: {inst_data['date'].max()}")
+                #     st.dataframe(
+                #         inst_data,
+                #         use_container_width=True,
+                #         height=400,
+                #         column_config={
+                #             "date": "Date",
+                #             "stock_id": "Ticker",
+                #             "category": "Investor Type",
+                #             "buy": st.column_config.NumberColumn("Buy", format="%d"),
+                #             "sell": st.column_config.NumberColumn("Sell", format="%d"),
+                #             "net": st.column_config.NumberColumn("Net", format="%d"),
+                #         },
+                #         hide_index=True,
+                #     )
 
-                with col_right:
-                    st.caption("Summary (Latest Date)")
-                    latest_data = inst_data[
-                        inst_data["date"] == inst_data["date"].max()
-                    ]
+                # with col_right:
+                #     st.caption("Summary (Latest Date)")
+                #     latest_data = inst_data[
+                #         inst_data["date"] == inst_data["date"].max()
+                #     ]
 
-                    # Show Three Major first
-                    three_major = latest_data[
-                        latest_data["category"]
-                        == "Three Major Institutional Investors (三大法人)"
-                    ]
-                    if not three_major.empty:
-                        row = three_major.iloc[0]
-                        st.metric("Three Major Buy", f"{row['buy']:,}")
-                        st.metric("Three Major Sell", f"{row['sell']:,}")
-                        st.metric(
-                            "Three Major Net", f"{row['net']:,}", delta=row["net"]
-                        )
+                #     # Show Three Major first
+                #     three_major = latest_data[
+                #         latest_data["category"]
+                #         == "Three Major Institutional Investors (三大法人)"
+                #     ]
+                #     if not three_major.empty:
+                #         row = three_major.iloc[0]
+                #         st.metric("Three Major Buy", f"{row['buy']:,}")
+                #         st.metric("Three Major Sell", f"{row['sell']:,}")
+                #         st.metric(
+                #             "Three Major Net", f"{row['net']:,}", delta=row["net"]
+                #         )
 
-                    st.divider()
+                #     st.divider()
 
-                    # Show breakdown by investor type (excluding the total)
-                    st.caption("Breakdown by Type")
-                    breakdown = latest_data[
-                        latest_data["category"]
-                        != "Three Major Institutional Investors (三大法人)"
-                    ].sort_values("category")
+                #     # Show breakdown by investor type (excluding the total)
+                #     st.caption("Breakdown by Type")
+                #     breakdown = latest_data[
+                #         latest_data["category"]
+                #         != "Three Major Institutional Investors (三大法人)"
+                #     ].sort_values("category")
 
-                    for _, row in breakdown.iterrows():
-                        with st.expander(row["category"]):
-                            st.metric("Buy", f"{row['buy']:,}")
-                            st.metric("Sell", f"{row['sell']:,}")
-                            st.metric("Net", f"{row['net']:,}")
+                #     for _, row in breakdown.iterrows():
+                #         with st.expander(row["category"]):
+                #             st.metric("Buy", f"{row['buy']:,}")
+                #             st.metric("Sell", f"{row['sell']:,}")
+                #             st.metric("Net", f"{row['net']:,}")
             else:
                 st.info(f"No institutional data available for {selected_ticker}")
 
