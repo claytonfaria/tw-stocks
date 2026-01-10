@@ -2,6 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas_ta as ta
 import pandas as pd
+import requests
+from datetime import datetime, timedelta
 
 # 1. Config and Title
 st.set_page_config(page_title="Taiwan Stock Dashboard", layout="wide")
@@ -87,10 +89,75 @@ def fetch_raw_data(ticker_list):
     return raw_data
 
 
+@st.cache_data(ttl=3600)
+def fetch_institutional_data(stock_id, days=90):
+    """Fetch institutional investor data from FinMind API."""
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+
+    url = "https://api.finmindtrade.com/api/v4/data"
+    parameter = {
+        "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+        "data_id": stock_id,
+        "start_date": start_date.strftime("%Y-%m-%d"),
+        "end_date": end_date.strftime("%Y-%m-%d"),
+    }
+
+    try:
+        response = requests.get(url, params=parameter, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("data"):
+            df = pd.DataFrame(data["data"])
+            # Convert buy/sell to integers and format
+            df["buy"] = pd.to_numeric(df["buy"], errors="coerce").fillna(0).astype(int)
+            df["sell"] = (
+                pd.to_numeric(df["sell"], errors="coerce").fillna(0).astype(int)
+            )
+            df["net"] = df["buy"] - df["sell"]
+
+            # Map investor types to proper categories
+            investor_map = {
+                "Foreign_Investor": "Foreign Investors (外資)",
+                "Investment_Trust": "Investment Trust (投信)",
+                "Dealer_self": "Dealers (自營商)",
+                "Dealer_Hedging": "Dealers (自營商)",
+                "Foreign_Dealer_Self": "Foreign Investors (外資)",
+            }
+
+            df["category"] = df["name"].map(investor_map)
+
+            # Group by date and category (merge Dealer types and Foreign types)
+            grouped = (
+                df.groupby(["date", "stock_id", "category"])
+                .agg({"buy": "sum", "sell": "sum", "net": "sum"})
+                .reset_index()
+            )
+
+            # Calculate Three Major Institutional Investors total
+            three_major = (
+                grouped.groupby(["date", "stock_id"])
+                .agg({"buy": "sum", "sell": "sum", "net": "sum"})
+                .reset_index()
+            )
+            three_major["category"] = "Three Major Institutional Investors (三大法人)"
+
+            # Combine grouped data with three major total
+            result = pd.concat([grouped, three_major], ignore_index=True)
+
+            return result.sort_values(["date", "category"], ascending=[False, True])
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error fetching institutional data: {str(e)}")
+        return pd.DataFrame()
+
+
 # Force refresh button
 st.sidebar.divider()
 if st.sidebar.button("🔄 Force Refresh Data", use_container_width=True):
     fetch_raw_data.clear()
+    fetch_institutional_data.clear()
     st.rerun()
 
 
@@ -277,5 +344,79 @@ if raw_data:
         height="content",
         column_config=column_config,
     )
+
+    # Institutional Data Section
+    st.divider()
+    st.subheader("📊 Institutional Investor Data")
+
+    # Extract ticker IDs for selection (remove the URL part)
+    ticker_ids = [t.split("=")[-1].replace("TWSE%3A", "") for t in data_table["Ticker"]]
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        selected_ticker = st.selectbox(
+            "Select Ticker", options=ticker_ids, key="inst_ticker_select"
+        )
+
+    with col2:
+        days_back = st.slider("Days of History", 30, 180, 90, key="inst_days")
+
+    if selected_ticker:
+        with st.spinner(f"Fetching institutional data for {selected_ticker}..."):
+            inst_data = fetch_institutional_data(selected_ticker, days_back)
+
+        if not inst_data.empty:
+            col_left, col_right = st.columns([3, 1])
+
+            with col_left:
+                st.caption(f"Latest: {inst_data['date'].max()}")
+                st.dataframe(
+                    inst_data,
+                    use_container_width=True,
+                    height=400,
+                    column_config={
+                        "date": "Date",
+                        "stock_id": "Ticker",
+                        "category": "Investor Type",
+                        "buy": st.column_config.NumberColumn("Buy", format="%d"),
+                        "sell": st.column_config.NumberColumn("Sell", format="%d"),
+                        "net": st.column_config.NumberColumn("Net", format="%d"),
+                    },
+                    hide_index=True,
+                )
+
+            with col_right:
+                st.caption("Summary (Latest Date)")
+                latest_data = inst_data[inst_data["date"] == inst_data["date"].max()]
+
+                # Show Three Major first
+                three_major = latest_data[
+                    latest_data["category"]
+                    == "Three Major Institutional Investors (三大法人)"
+                ]
+                if not three_major.empty:
+                    row = three_major.iloc[0]
+                    st.metric("Three Major Buy", f"{row['buy']:,}")
+                    st.metric("Three Major Sell", f"{row['sell']:,}")
+                    st.metric("Three Major Net", f"{row['net']:,}", delta=row["net"])
+
+                st.divider()
+
+                # Show breakdown by investor type (excluding the total)
+                st.caption("Breakdown by Type")
+                breakdown = latest_data[
+                    latest_data["category"]
+                    != "Three Major Institutional Investors (三大法人)"
+                ].sort_values("category")
+
+                for _, row in breakdown.iterrows():
+                    with st.expander(row["category"]):
+                        st.metric("Buy", f"{row['buy']:,}")
+                        st.metric("Sell", f"{row['sell']:,}")
+                        st.metric("Net", f"{row['net']:,}")
+        else:
+            st.info(f"No institutional data available for {selected_ticker}")
+
 else:
     st.error("Could not fetch data. Please check your internet connection.")
