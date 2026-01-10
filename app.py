@@ -412,9 +412,16 @@ def create_institutional_chart(inst_data, stock_id, raw_data):
         )
     )
 
+    # Add zero line for net buy/sell reference
+    zero_line = (
+        alt.Chart(pd.DataFrame({"zero": [0]}))
+        .mark_rule(color="black", strokeWidth=2)
+        .encode(y=alt.Y("zero:Q", title="Net Buy/Sell (shares)"))
+    )
+
     # Layer charts with resolve to have independent y-axes
     chart = (
-        alt.layer(bars, line)
+        alt.layer(bars + zero_line, line)
         .resolve_scale(y="independent")
         .properties(
             title=f"Institutional Investor Activity - {stock_id}",
