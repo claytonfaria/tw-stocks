@@ -319,7 +319,7 @@ def create_institutional_chart(inst_data, stock_id, raw_data):
         .mark_bar(opacity=0.7)
         .encode(
             x=alt.X(
-                "date:T", axis=alt.Axis(format="%m/%d", labelAngle=-45), title="Date"
+                "yearmonthdate(date):O", axis=alt.Axis(labelAngle=-45), title="Date"
             ),
             y=alt.Y("net:Q", title="Net Buy/Sell (shares)"),
             color=alt.Color(
@@ -337,7 +337,7 @@ def create_institutional_chart(inst_data, stock_id, raw_data):
         alt.Chart(stock_df)
         .mark_line(color="#2ca02c", size=2)
         .encode(
-            x=alt.X("date:T"),
+            x=alt.X("yearmonthdate(date):O"),
             y=alt.Y("close:Q", title="Stock Price (TWD)"),
             tooltip=["date:T", "close:Q"],
         )
