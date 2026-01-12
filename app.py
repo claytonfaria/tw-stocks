@@ -80,14 +80,52 @@ def flatten_multiindex_columns(df):
     return df
 
 
+def get_effective_end_date(tz: str = "Asia/Taipei", cutoff_hour: int = 20, now=None):
+    """Return effective end date (as a date object).
+
+    Use today's date only if local time in `tz` is >= `cutoff_hour`; otherwise return
+    yesterday. `now` can be provided for testing (datetime or pd.Timestamp).
+    """
+    if now is None:
+        now_ts = pd.Timestamp.now(tz=tz)
+    else:
+        now_ts = pd.Timestamp(now)
+        if now_ts.tzinfo is None:
+            now_ts = now_ts.tz_localize(tz)
+        else:
+            now_ts = now_ts.tz_convert(tz)
+
+    if now_ts.hour >= cutoff_hour:
+        return now_ts.date()
+    return (now_ts - pd.Timedelta(days=1)).date()
+
+
 @st.cache_data(ttl=3600)  # Cache raw data for 1 hour
 def fetch_raw_data(ticker_list):
     """Fetch raw stock data from yfinance (cached)."""
     raw_data = {}
     fetch_time = pd.Timestamp.now(tz="Asia/Taipei").strftime("%Y-%m-%d %H:%M:%S")
+
+    # Determine date range using shared helper (avoids partial-day data)
+    effective_end_date = get_effective_end_date()
+
+    # yfinance 'end' is exclusive, add one day to include the effective end date
+    end_exclusive = (pd.Timestamp(effective_end_date) + pd.Timedelta(days=1)).strftime(
+        "%Y-%m-%d"
+    )
+    start_date = (
+        pd.Timestamp(effective_end_date) - pd.Timedelta(days=365 * 2)
+    ).strftime("%Y-%m-%d")
+
     for symbol in ticker_list:
         full_symbol = f"{symbol}.TW"
-        df = yf.download(full_symbol, period="2y", progress=False)
+        # Use explicit date range to avoid partial-day data
+        df = yf.download(
+            full_symbol,
+            start=start_date,
+            end=end_exclusive,
+            progress=False,
+        )
         if not df.empty:
             df = flatten_multiindex_columns(df)
             raw_data[symbol] = df
@@ -98,7 +136,10 @@ def fetch_raw_data(ticker_list):
 def fetch_institutional_data(stock_id, days=90):
     """Fetch institutional investor data from FinMind API."""
     fetch_time = pd.Timestamp.now(tz="Asia/Taipei").strftime("%Y-%m-%d %H:%M:%S")
-    end_date = datetime.now()
+
+    # Determine effective end date using helper (inclusive for API)
+    effective_end_date = get_effective_end_date()
+    end_date = datetime.combine(effective_end_date, datetime.min.time())
     start_date = end_date - timedelta(days=days)
 
     url = "https://api.finmindtrade.com/api/v4/data"
